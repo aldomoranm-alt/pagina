@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aesthetic AI Control</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Fuentes Aesthetic -->
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Playfair+Display:wght@600;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"DM Sans"', 'sans-serif'],
+                        serif: ['"Playfair Display"', 'serif'],
+                    },
+                    colors: {
+                        cream: '#F9F7F2',
+                        card: '#FFFFFF',
+                        primary: '#2D2D2D',
+                        accent: '#E6B8B8', // Dusty Pink
+                        success: '#A3C9A8', // Sage Green
+                        surface: '#F2F0EB'
+                    },
+                    borderRadius: {
+                        'pin': '32px'
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background-color: #F9F7F2;
+            color: #2D2D2D;
+        }
+        
+        canvas {
+            border-radius: 24px;
+            width: 100% !important;
+            height: auto !important;
+            object-fit: cover;
+            /* Efecto "Pin" seleccionado */
+            box-shadow: 0 10px 30px -10px rgba(0,0,0,0.1); 
+        }
+
+        .btn-aesthetic {
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .btn-aesthetic:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px -5px rgba(0,0,0,0.1);
+        }
+        .btn-aesthetic:active {
+            transform: translateY(0);
+        }
+
+        /* Indicador LED Suave */
+        .status-dot {
+            transition: all 0.5s ease;
+        }
+        .dot-on {
+            background-color: #A3C9A8; /* Sage Green */
+            box-shadow: 0 0 0 4px #E3F0E5;
+            transform: scale(1.1);
+        }
+        .dot-off {
+            background-color: #E5E5E5;
+            box-shadow: none;
+        }
+        
+        /* Animación suave para el indicador de conexión */
+        .ping-slow {
+            animation: ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+        }
+        @keyframes ping {
+            75%, 100% {
+                transform: scale(2);
+                opacity: 0;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-6">
+
+    <!-- Tarjeta Principal Estilo Pinterest -->
+    <div class="w-full max-w-[900px] grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+        
+        <!-- Columna Izquierda: Visual (Imagen/Cámara) -->
+        <div class="bg-card p-4 rounded-pin shadow-sm md:sticky md:top-8 flex flex-col gap-4">
+            <div id="webcam-container" class="aspect-square bg-surface rounded-[24px] flex items-center justify-center overflow-hidden relative group">
+                <!-- Placeholder decorativo -->
+                <div id="placeholder" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 space-y-3">
+                    <div class="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm">
+                        <span class="text-2xl">📷</span>
+                    </div>
+                    <p class="font-serif italic text-lg opacity-60">Visual Input</p>
+                </div>
+            </div>
+            
+            <!-- Estado Minimalista (Solo LED) -->
+            <div class="flex items-center justify-center px-2">
+                <div class="flex items-center gap-3 bg-surface px-4 py-2 rounded-full" title="Indicador Actuador">
+                    <div id="virtual-led" class="w-3 h-3 rounded-full dot-off status-dot"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Columna Derecha: Controles y Datos -->
+        <div class="flex flex-col gap-6 pt-4">
+            
+            <!-- Header -->
+            <div class="text-center md:text-left space-y-2">
+                <h1 class="font-serif text-5xl text-primary font-bold tracking-tight">Teachable Machine</h1>
+            </div>
+
+            <hr class="border-gray-200">
+
+            <!-- Botonera Aesthetic -->
+            <div class="space-y-4">
+                
+                <!-- NUEVO: Indicador de Estado Arduino sobre el botón -->
+                <div class="flex justify-end px-2">
+                    <div id="arduino-status-badge" class="flex items-center gap-2 text-xs font-bold tracking-widest uppercase text-gray-400 transition-colors duration-300">
+                        <span class="relative flex h-2 w-2">
+                          <span id="status-ping" class="absolute inline-flex h-full w-full rounded-full bg-gray-400 opacity-0"></span>
+                          <span id="status-dot-color" class="relative inline-flex rounded-full h-2 w-2 bg-gray-300 transition-colors duration-300"></span>
+                        </span>
+                        <span>No Conectado</span>
+                    </div>
+                </div>
+
+                <button id="btn-connect" onclick="connectArduino()" 
+                    class="btn-aesthetic w-full group relative bg-white border-2 border-surface hover:border-gray-300 text-primary font-bold py-4 px-8 rounded-full flex items-center justify-between">
+                    <span class="font-sans text-lg">1. Conectar Arduino</span>
+                    <span class="bg-surface w-10 h-10 rounded-full flex items-center justify-center group-hover:bg-primary group-hover:text-white transition-colors">⚡</span>
+                </button>
+
+                <button id="btn-camera" onclick="toggleCamera()" 
+                    class="btn-aesthetic w-full bg-primary text-white font-bold py-4 px-8 rounded-full flex items-center justify-between shadow-lg shadow-gray-200">
+                    <span id="txt-camera" class="font-sans text-lg">2. Activar</span>
+                    <span class="text-xl">✨</span>
+                </button>
+            </div>
+
+            <!-- Panel de Predicciones (Estilo Comentarios) -->
+            <div id="prediction-panel" class="hidden animate-fade-in bg-white p-6 rounded-[32px] border border-surface shadow-sm mt-4">
+                <h3 class="font-serif text-xl mb-6 flex items-center gap-2">
+                    Análisis en tiempo real
+                    <span class="text-xs font-sans bg-accent/20 text-accent px-2 py-1 rounded-full">Live</span>
+                </h3>
+                <div id="label-container" class="space-y-6">
+                    <!-- Se llena con JS -->
+                </div>
+            </div>
+
+            <p id="status-msg" class="text-center text-sm font-sans text-gray-400 mt-4 h-6"></p>
+
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        // ==========================================
+        //  CONFIGURACIÓN (Igual que antes)
+        // ==========================================
+        const URL = "https://teachablemachine.withgoogle.com/models/enNs9hIlU/"; 
+        const CLASE_QUE_ENCIENDE = 1; 
+        // ==========================================
+
+        let model, webcam, labelContainer, maxPredictions;
+        let isCameraRunning = false;
+        let writer; 
+        let lastSentState = null;
+        
+        const statusMsg = document.getElementById('status-msg');
+        const btnCamera = document.getElementById('btn-camera');
+        const txtCamera = document.getElementById('txt-camera');
+        const virtualLed = document.getElementById('virtual-led');
+        const predictionPanel = document.getElementById('prediction-panel');
+        
+        // Elementos del nuevo indicador
+        const arduinoStatusBadge = document.getElementById('arduino-status-badge');
+        const statusDotColor = document.getElementById('status-dot-color');
+        const statusPing = document.getElementById('status-ping');
+
+        // --- ARDUINO ---
+        async function connectArduino() {
+            if (!navigator.serial) return showStatus("Navegador no compatible. Usa Chrome Desktop.", "text-red-400");
+            try {
+                const port = await navigator.serial.requestPort();
+                await port.open({ baudRate: 9600 });
+                const textEncoder = new TextEncoderStream();
+                const writableStreamClosed = textEncoder.readable.pipeTo(port.writable);
+                writer = textEncoder.writable.getWriter();
+                
+                const btn = document.getElementById('btn-connect');
+                btn.classList.add('bg-success', 'text-white', 'border-transparent');
+                btn.classList.remove('bg-white', 'text-primary');
+                btn.innerHTML = `<span class="font-sans text-lg">Arduino Sincronizado</span><span>🌿</span>`;
+                btn.disabled = true;
+                
+                // ACTUALIZAR INDICADOR SUPERIOR
+                arduinoStatusBadge.innerHTML = `
+                    <span class="relative flex h-2 w-2">
+                      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                      <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                    </span>
+                    <span class="text-green-600">Conectado</span>
+                `;
+                arduinoStatusBadge.classList.replace('text-gray-400', 'text-green-600');
+                
+                showStatus("Conexión establecida", "text-success");
+            } catch (err) {
+                showStatus("Error de conexión", "text-accent");
+            }
+        }
+
+        async function sendToArduino(state) {
+            if (writer && state !== lastSentState) {
+                try { await writer.write(state); lastSentState = state; } catch (e) { console.error(e); }
+            }
+        }
+
+        // --- CÁMARA E IA ---
+        async function toggleCamera() {
+            isCameraRunning ? await stopCamera() : await startCamera();
+        }
+
+        async function startCamera() {
+            btnCamera.disabled = true;
+            txtCamera.innerText = "Cargando...";
+            showStatus("Obteniendo modelo...", "text-gray-400");
+
+            try {
+                const modelURL = URL + "model.json";
+                const metadataURL = URL + "metadata.json";
+
+                model = await tmImage.load(modelURL, metadataURL);
+                maxPredictions = model.getTotalClasses();
+
+                const flip = true; 
+                webcam = new tmImage.Webcam(300, 300, flip); 
+                await webcam.setup(); 
+                await webcam.play();
+                
+                const wcContainer = document.getElementById("webcam-container");
+                wcContainer.innerHTML = "";
+                wcContainer.appendChild(webcam.canvas);
+                
+                // Preparar panel
+                labelContainer = document.getElementById("label-container");
+                labelContainer.innerHTML = "";
+                predictionPanel.classList.remove('hidden');
+                
+                for (let i = 0; i < maxPredictions; i++) {
+                    const div = document.createElement("div");
+                    div.className = "group";
+                    div.innerHTML = `
+                        <div class="flex justify-between items-end mb-2">
+                            <span id="label-${i}-name" class="font-bold text-gray-700 text-lg group-hover:text-black transition-colors">Class ${i}</span>
+                            <span id="label-${i}-val" class="font-mono text-sm text-gray-400">0%</span>
+                        </div>
+                        <div class="w-full bg-surface rounded-full h-3 overflow-hidden">
+                            <div id="bar-${i}" class="bg-primary h-3 rounded-full transition-all duration-300 ease-out w-0 opacity-80"></div>
+                        </div>
+                    `;
+                    labelContainer.appendChild(div);
+                }
+
+                window.requestAnimationFrame(loop);
+                isCameraRunning = true;
+                
+                btnCamera.disabled = false;
+                btnCamera.classList.replace('bg-primary', 'bg-accent'); // Cambia a rosado al parar
+                btnCamera.innerHTML = `<span class="font-sans text-lg">2. Desactivar</span><span class="text-xl">🍂</span>`;
+                showStatus("Sistema activo", "text-gray-400");
+
+            } catch (err) {
+                console.error(err);
+                btnCamera.disabled = false;
+                txtCamera.innerText = "2. Iniciar Experiencia";
+                showStatus("Error al cargar modelo", "text-accent");
+            }
+        }
+
+        async function stopCamera() {
+            if (webcam) webcam.stop();
+            isCameraRunning = false;
+            
+            document.getElementById("webcam-container").innerHTML = `
+                <div id="placeholder" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 space-y-3">
+                    <div class="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm">
+                        <span class="text-2xl">💤</span>
+                    </div>
+                    <p class="font-serif italic text-lg opacity-60">En reposo</p>
+                </div>
+            `;
+            
+            btnCamera.classList.replace('bg-accent', 'bg-primary');
+            btnCamera.innerHTML = `<span id="txt-camera" class="font-sans text-lg">2. Activar</span><span class="text-xl">✨</span>`;
+            
+            predictionPanel.classList.add('hidden');
+            showStatus("Sistema en pausa", "text-gray-400");
+            sendToArduino('0');
+            virtualLed.classList.replace('dot-on', 'dot-off');
+        }
+
+        async function loop() {
+            if (isCameraRunning) {
+                webcam.update(); 
+                await predict();
+                window.requestAnimationFrame(loop);
+            }
+        }
+
+        async function predict() {
+            const prediction = await model.predict(webcam.canvas);
+            let highestProb = 0;
+            let bestClassIndex = 0;
+
+            for (let i = 0; i < maxPredictions; i++) {
+                const probability = prediction[i].probability;
+                const percent = Math.round(probability * 100);
+                
+                document.getElementById(`label-${i}-name`).innerText = prediction[i].className;
+                document.getElementById(`label-${i}-val`).innerText = percent + "%";
+                
+                const bar = document.getElementById(`bar-${i}`);
+                bar.style.width = percent + "%";
+                
+                // Colores Aesthetic para las barras
+                if(probability > 0.8) {
+                    bar.style.backgroundColor = "#A3C9A8"; // Verde Sage
+                    bar.style.opacity = "1";
+                } else {
+                    bar.style.backgroundColor = "#2D2D2D"; // Negro Suave
+                    bar.style.opacity = "0.2";
+                }
+
+                if (probability > highestProb) {
+                    highestProb = probability;
+                    bestClassIndex = i;
+                }
+            }
+
+            // Lógica: 99% de certeza para activar
+            if (highestProb > 0.99) {
+                sendToArduino('1');
+                virtualLed.classList.replace('dot-off', 'dot-on');
+            } else {
+                sendToArduino('0');
+                virtualLed.classList.replace('dot-on', 'dot-off');
+            }
+        }
+
+        function showStatus(msg, colorClass) {
+            statusMsg.innerText = msg;
+        }
+    </script>
+</body>
+</html>
